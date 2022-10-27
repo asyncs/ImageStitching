@@ -29,5 +29,6 @@ if __name__ == '__main__':
     stitcher1 = ImageStitcher(images[0])
     stitcher1.feature_extraction()
     stitcher1.feature_matching_brute()
+    stitcher1.fitting_homography()
 
 
