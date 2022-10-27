@@ -62,12 +62,12 @@ class ImageStitcher:
 
             keypoints_a_loc = np.flip(cv.KeyPoint_convert(keypoints_a), 1)
             keypoints_b_loc = np.flip(cv.KeyPoint_convert(keypoints_b), 1)
-            print(keypoints_a_loc.shape)
+
             fig = plt.figure(figsize=(20, 10))
             ax = fig.add_subplot(1, 1, 1)
 
             plot_matches(ax, cv.cvtColor(image_a, cv.COLOR_BGR2RGB), cv.cvtColor(image_b, cv.COLOR_BGR2RGB),
-                         cv.KeyPoint_convert(keypoints_a).T, cv.KeyPoint_convert(keypoints_b), match[:20])
+                         keypoints_a_loc, keypoints_b_loc, match)
             plt.show()
 
         self.matches = matches
