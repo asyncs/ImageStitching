@@ -41,7 +41,7 @@ def constrained_least_squares(points_a, points_b):
     return H
 
 
-def ransac(matches, keypoint_a, keypoint_b, iter_count=250, epsilon=10):
+def ransac_fitting(matches, keypoint_a, keypoint_b, iter_count=500, epsilon=10):
     ransac_iteration = iter_count
     ransac_threshold = epsilon
     keypoints_a_loc = cv.KeyPoint_convert(keypoint_a)
@@ -60,7 +60,7 @@ def ransac(matches, keypoint_a, keypoint_b, iter_count=250, epsilon=10):
         homography = constrained_least_squares(np.array(points_a), np.array(points_b))
         inlier_count, inlier_set = find_inliers(keypoints_a_loc, keypoints_b_loc, matches, homography, ransac_threshold)
 
-        print("Iteration: ", iter_index, "Inlier Count: ", inlier_count)
+        print("Iteration: ", iter_index+1, "Inlier Count: ", inlier_count)
 
         if inlier_count > max_inlier_count:
             max_inlier_count = inlier_count
@@ -150,7 +150,7 @@ class ImageStitcher:
             keypoints_b = self.keypoints_array[pair_index + 1]
             matches = self.matches[pair_index]
 
-            inliers = ransac(matches, keypoints_a, keypoints_b)
+            inliers = ransac_fitting(matches, keypoints_a, keypoints_b)
 
             keypoints_a_loc = np.flip(cv.KeyPoint_convert(keypoints_a), 1)
             keypoints_b_loc = np.flip(cv.KeyPoint_convert(keypoints_b), 1)

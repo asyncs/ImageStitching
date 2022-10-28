@@ -1,6 +1,5 @@
 import os
 import cv2 as cv
-import numpy as np
 
 from ImageStitcher import ImageStitcher
 
@@ -30,5 +29,4 @@ if __name__ == '__main__':
     stitcher1.feature_extraction()
     stitcher1.feature_matching_brute()
     stitcher1.fitting_homography()
-
-
+    stitcher1.alignment()
