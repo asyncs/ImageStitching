@@ -36,12 +36,27 @@ def find_inliers(points_loc_a, points_loc_b, matches, homography, threshold):
     return inlier_count, inlier_set
 
 
-def constrained_least_squares(points_a, points_b):
-    H, _ = cv.findHomography(points_a, points_b, 0)
-    return H
+def fit_homography(points_a, points_b):
+    pair_matrix = []
+
+    for index in range(points_a.shape[0]):
+        x_a = points_a[index, 0]
+        y_a = points_a[index, 1]
+        x_b = points_b[index, 0]
+        y_b = points_b[index, 1]
+        pair_matrix.append([-x_a, -y_a, -1, 0, 0, 0, x_a*x_b, y_a*x_b, x_b])
+        pair_matrix.append([0, 0, 0, -x_a, -y_a, -1, x_a*y_b, y_a*y_b, y_b])
+
+    pair_matrix = np.matrix(pair_matrix)
+
+    _, _, vT = np.linalg.svd(pair_matrix)
+    H = np.reshape(vT[8], (3, 3))
+    H = (1 / H.item(8)) * H
+
+    return np.array(H)
 
 
-def ransac_fitting(matches, keypoint_a, keypoint_b, iter_count=500, epsilon=10):
+def ransac_fitting(matches, keypoint_a, keypoint_b, iter_count=500, epsilon=2):
     ransac_iteration = iter_count
     ransac_threshold = epsilon
     keypoints_a_loc = cv.KeyPoint_convert(keypoint_a)
@@ -57,7 +72,7 @@ def ransac_fitting(matches, keypoint_a, keypoint_b, iter_count=500, epsilon=10):
         for each in random_matches:
             points_a.append(keypoint_a[matches[each, 0]].pt)
             points_b.append(keypoint_b[matches[each, 1]].pt)
-        homography = constrained_least_squares(np.array(points_a), np.array(points_b))
+        homography = fit_homography(np.array(points_a), np.array(points_b))
         inlier_count, inlier_set = find_inliers(keypoints_a_loc, keypoints_b_loc, matches, homography, ransac_threshold)
 
         print("Iteration: ", iter_index+1, "Inlier Count: ", inlier_count)
@@ -100,7 +115,7 @@ class ImageStitcher:
         self.keypoints_array = sift_keypoints_array
         self.descriptors_array = sift_descriptors_array
 
-    # Sorting logic is inspired from https://github.com/AhmedHisham1/ORB-feature-matching/blob/master/utils.py
+    # Cross-check logic is inspired from https://github.com/AhmedHisham1/ORB-feature-matching/blob/master/utils.py
     def feature_matching_brute(self):
         matches = []
         for pair_index in range(len(self.descriptors_array) - 1):
@@ -161,7 +176,7 @@ class ImageStitcher:
                 points_a.append(keypoints_a[each[0]].pt)
                 points_b.append(keypoints_b[each[1]].pt)
 
-            homography = constrained_least_squares(np.array(points_a), np.array(points_b))
+            homography = fit_homography(np.array(points_a), np.array(points_b))
             homography_matrices.append(homography)
 
             fig = plt.figure(figsize=(20, 10))
@@ -176,4 +191,17 @@ class ImageStitcher:
         self.homography_matrices = homography_matrices
 
     def alignment(self):
+        for pair_index in range(len(self.descriptors_array) - 1):
+            image_a = self.images[pair_index]
+            image_b = self.images[pair_index + 1]
+            result = cv.warpPerspective(image_b, np.linalg.inv(self.homography_matrices[0]), (image_a.shape[1] + image_b.shape[1], image_a.shape[0]+image_b.shape[0]))
+
+            result[0:image_a.shape[0], 0:image_a.shape[1]] = image_a
+
+            plt.imshow(cv.cvtColor(result, cv.COLOR_BGR2RGB))
+            plt.axis('off')
+            plt.title("Stitched Image")
+            plt.show()
+
+
         pass

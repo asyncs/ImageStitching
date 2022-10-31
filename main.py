@@ -23,9 +23,9 @@ if __name__ == '__main__':
         img = cv.imread(img_path + image_name)
         sub_images.append(img)
 
-    sub_images.append(img)
+    images.append(sub_images)
 
-    stitcher1 = ImageStitcher(images[0])
+    stitcher1 = ImageStitcher(images[2])
     stitcher1.feature_extraction()
     stitcher1.feature_matching_brute()
     stitcher1.fitting_homography()
