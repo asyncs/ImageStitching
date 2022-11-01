@@ -84,6 +84,40 @@ def ransac_fitting(matches, keypoint_a, keypoint_b, iter_count=500, epsilon=2):
     print("Maximum inlier count: ", max_inlier_count)
     return np.array(max_inlier_set)
 
+def get_new_dimensions(image_a, image_b, homography):
+    image_a_width = image_a.shape[1]
+    image_a_height = image_a.shape[0]
+    image_b_width = image_b.shape[1]
+    image_b_height = image_b.shape[0]
+
+    H_inv = np.linalg.inv(homography)
+
+    new_top_corner = perspective_projection(image_b_width, image_b_height, H_inv)
+    new_bottom_corner = perspective_projection(image_b_width, 0, H_inv)
+    new_top_corner = get_cartesian_coordinates(new_top_corner)
+    new_bottom_corner = get_cartesian_coordinates(new_bottom_corner)
+
+    new_width = max([image_a_width, image_b_width, new_top_corner[0], new_bottom_corner[0]])
+    new_width = int(new_width) + 1
+
+    new_height = 0
+    if new_bottom_corner[1] < 0:
+        new_height = max([new_top_corner[1], image_a_height, image_b_height]) - new_bottom_corner[1]
+    else:
+        new_height = max([new_top_corner[1], image_a_height, image_b_height])
+
+    new_height = int(new_height) + 1
+
+    return new_width, new_height
+
+
+def stitch_two_images(image_a, image_b, homography):
+    img_a = image_a.copy()
+    img_b = image_b.copy()
+    h_inv = np.linalg.inv(homography)
+    new_width, new_height = get_new_dimensions(img_a, img_b, homography)
+    new_img = np.zeros((new_height, new_width, 3))
+
 
 class ImageStitcher:
 
@@ -194,7 +228,10 @@ class ImageStitcher:
         for pair_index in range(len(self.descriptors_array) - 1):
             image_a = self.images[pair_index]
             image_b = self.images[pair_index + 1]
-            result = cv.warpPerspective(image_b, np.linalg.inv(self.homography_matrices[0]), (image_a.shape[1] + image_b.shape[1], image_a.shape[0]+image_b.shape[0]))
+
+            new_width, new_height = get_new_dimensions(image_a, image_b, self.homography_matrices[0])
+
+            result = cv.warpPerspective(image_b, np.linalg.inv(self.homography_matrices[0]), (new_width, new_height))
 
             result[0:image_a.shape[0], 0:image_a.shape[1]] = image_a
 
@@ -202,6 +239,3 @@ class ImageStitcher:
             plt.axis('off')
             plt.title("Stitched Image")
             plt.show()
-
-
-        pass
