@@ -25,8 +25,10 @@ if __name__ == '__main__':
 
     images.append(sub_images)
 
-    stitcher1 = ImageStitcher(images[1], epsilon=2.5, alpha=0.5)
-    stitcher1.feature_extraction()
-    stitcher1.feature_matching_brute()
-    stitcher1.fitting_homography()
-    stitcher1.alignment()
+    #stitcher1 = ImageStitcher(images[0], epsilon=15, alpha=0.6)
+    #stitcher1.alignment()
+    #stitcher2 = ImageStitcher(images[1], epsilon=2.5, alpha=0.5)
+    #stitcher2.alignment()
+    stitcher3 = ImageStitcher(images[2], epsilon=2, alpha=0.4)
+    stitcher3.alignment()
+

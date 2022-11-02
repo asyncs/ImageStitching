@@ -129,7 +129,7 @@ def average_conv(image):
     return average_bluring
 
 
-def stitch_two_images(image_a, image_b, homography, alpha):
+def stitch_images(image_a, image_b, homography, alpha):
     new_width, new_height, offset_width, offset_height, min_width, min_height = get_new_dimensions(image_a, image_b, homography)
     new_image_a = np.zeros((new_height, new_width, 3), dtype=np.uint8)
     new_image_b = np.zeros((new_height, new_width, 3), dtype=np.uint8)
@@ -149,9 +149,106 @@ def stitch_two_images(image_a, image_b, homography, alpha):
                     y_new = int(y_new)
                     new_image_b[y_start, x_start, :] = image_b[y_new, x_new, :]
 
-    new_image = alpha_blending(new_image_a, new_image_b, 0.4)
+    new_image = alpha_blending(new_image_a, new_image_b, alpha)
 
     return new_image
+
+
+def feature_extraction(images):
+        sift_keypoints_array = []
+        sift_descriptors_array = []
+
+        sift = cv.SIFT_create()
+
+        for img in images:
+            keypoints, descriptors = sift.detectAndCompute(img, None)
+            sift_keypoints_array.append(keypoints)
+            sift_descriptors_array.append(descriptors)
+
+            img_keypoint = cv.drawKeypoints(img, keypoints, None)
+            plt.imshow(cv.cvtColor(img_keypoint, cv.COLOR_BGR2RGB))
+            plt.axis('off')
+            plt.title("Extracted Keypoints")
+            plt.show()
+
+        return sift_descriptors_array, sift_keypoints_array
+
+
+    # Cross-check logic is inspired from https://github.com/AhmedHisham1/ORB-feature-matching/blob/master/utils.py
+def feature_matching_brute(images, descriptors_array, keypoints_array):
+    matches = []
+    for pair_index in range(len(descriptors_array) - 1):
+        image_a = images[pair_index]
+        image_b = images[pair_index + 1]
+        keypoints_a = keypoints_array[pair_index]
+        keypoints_b = keypoints_array[pair_index + 1]
+        descriptor_a = descriptors_array[pair_index]
+        descriptor_b = descriptors_array[pair_index + 1]
+
+        distances_a2b = distance.cdist(descriptor_a, descriptor_b, metric='hamming')
+
+        index_a = np.arange(descriptor_a.shape[0])
+        index_b = np.argmin(distances_a2b, axis=1)
+
+        matches_b2a = np.argmin(distances_a2b, axis=0)
+        cross_check = index_a == matches_b2a[index_b]
+
+        index_a = index_a[cross_check]
+        index_b = index_b[cross_check]
+        distances_a2b = distances_a2b[index_a, index_b]
+        sorted_indexes = distances_a2b.argsort()
+
+        match = np.column_stack((index_a[sorted_indexes], index_b[sorted_indexes]))
+        matches.append(match)
+
+        keypoints_a_loc = np.flip(cv.KeyPoint_convert(keypoints_a), 1)
+        keypoints_b_loc = np.flip(cv.KeyPoint_convert(keypoints_b), 1)
+
+        fig = plt.figure(figsize=(20, 10))
+        ax = fig.add_subplot(1, 1, 1)
+
+        plot_matches(ax, cv.cvtColor(image_a, cv.COLOR_BGR2RGB), cv.cvtColor(image_b, cv.COLOR_BGR2RGB),
+                     keypoints_a_loc, keypoints_b_loc, match)
+        plt.axis('off')
+        plt.title("Matched Keypoints")
+        plt.show()
+
+    return matches
+
+
+def find_homography(images, keypoints_array, matches, epsilon):
+    homography_matrices = None
+    for pair_index in range(len(keypoints_array) - 1):
+        image_a = images[pair_index]
+        image_b = images[pair_index + 1]
+        keypoints_a = keypoints_array[pair_index]
+        keypoints_b = keypoints_array[pair_index + 1]
+        matches = matches[pair_index]
+
+        inliers = ransac_fitting(matches, keypoints_a, keypoints_b, epsilon=epsilon)
+
+        keypoints_a_loc = np.flip(cv.KeyPoint_convert(keypoints_a), 1)
+        keypoints_b_loc = np.flip(cv.KeyPoint_convert(keypoints_b), 1)
+
+        points_a = []
+        points_b = []
+        for each in inliers:
+            points_a.append(keypoints_a[each[0]].pt)
+            points_b.append(keypoints_b[each[1]].pt)
+
+        homography = fit_homography(np.array(points_a), np.array(points_b))
+        homography_matrices = homography
+
+        fig = plt.figure(figsize=(20, 10))
+        ax = fig.add_subplot(1, 1, 1)
+
+        plot_matches(ax, cv.cvtColor(image_a, cv.COLOR_BGR2RGB), cv.cvtColor(image_b, cv.COLOR_BGR2RGB),
+                     keypoints_a_loc, keypoints_b_loc, inliers)
+        plt.axis('off')
+        plt.title("Matched Keypoints after RANSAC")
+        plt.show()
+
+    return homography_matrices
 
 
 class ImageStitcher:
@@ -165,110 +262,36 @@ class ImageStitcher:
         self.matches = []
         self.homography_matrices = []
 
-    def feature_extraction(self):
-        tmp_images = self.images
-        sift_keypoints_array = []
-        sift_descriptors_array = []
-
-        sift = cv.SIFT_create()
-
-        for img in tmp_images:
-            keypoints, descriptors = sift.detectAndCompute(img, None)
-            sift_keypoints_array.append(keypoints)
-            sift_descriptors_array.append(descriptors)
-
-            img_keypoint = cv.drawKeypoints(img, keypoints, None)
-            plt.imshow(cv.cvtColor(img_keypoint, cv.COLOR_BGR2RGB))
-            plt.axis('off')
-            plt.title("Extracted Keypoints")
-            plt.show()
-
-        self.keypoints_array = sift_keypoints_array
-        self.descriptors_array = sift_descriptors_array
-
-    # Cross-check logic is inspired from https://github.com/AhmedHisham1/ORB-feature-matching/blob/master/utils.py
-    def feature_matching_brute(self):
-        matches = []
-        for pair_index in range(len(self.descriptors_array) - 1):
-            image_a = self.images[pair_index]
-            image_b = self.images[pair_index + 1]
-            keypoints_a = self.keypoints_array[pair_index]
-            keypoints_b = self.keypoints_array[pair_index + 1]
-            descriptor_a = self.descriptors_array[pair_index]
-            descriptor_b = self.descriptors_array[pair_index + 1]
-
-            distances_a2b = distance.cdist(descriptor_a, descriptor_b, metric='hamming')
-
-            index_a = np.arange(descriptor_a.shape[0])
-            index_b = np.argmin(distances_a2b, axis=1)
-
-            matches_b2a = np.argmin(distances_a2b, axis=0)
-            cross_check = index_a == matches_b2a[index_b]
-
-            index_a = index_a[cross_check]
-            index_b = index_b[cross_check]
-            distances_a2b = distances_a2b[index_a, index_b]
-            sorted_indexes = distances_a2b.argsort()
-
-            match = np.column_stack((index_a[sorted_indexes], index_b[sorted_indexes]))
-            matches.append(match)
-
-            keypoints_a_loc = np.flip(cv.KeyPoint_convert(keypoints_a), 1)
-            keypoints_b_loc = np.flip(cv.KeyPoint_convert(keypoints_b), 1)
-
-            fig = plt.figure(figsize=(20, 10))
-            ax = fig.add_subplot(1, 1, 1)
-
-            plot_matches(ax, cv.cvtColor(image_a, cv.COLOR_BGR2RGB), cv.cvtColor(image_b, cv.COLOR_BGR2RGB),
-                         keypoints_a_loc, keypoints_b_loc, match)
-            plt.axis('off')
-            plt.title("Matched Keypoints")
-            plt.show()
-
-        self.matches = matches
-
-    def fitting_homography(self):
-        homography_matrices = []
-        for pair_index in range(len(self.descriptors_array) - 1):
-            image_a = self.images[pair_index]
-            image_b = self.images[pair_index + 1]
-            keypoints_a = self.keypoints_array[pair_index]
-            keypoints_b = self.keypoints_array[pair_index + 1]
-            matches = self.matches[pair_index]
-
-            inliers = ransac_fitting(matches, keypoints_a, keypoints_b, epsilon=self.epsilon)
-
-            keypoints_a_loc = np.flip(cv.KeyPoint_convert(keypoints_a), 1)
-            keypoints_b_loc = np.flip(cv.KeyPoint_convert(keypoints_b), 1)
-
-            points_a = []
-            points_b = []
-            for each in inliers:
-                points_a.append(keypoints_a[each[0]].pt)
-                points_b.append(keypoints_b[each[1]].pt)
-
-            homography = fit_homography(np.array(points_a), np.array(points_b))
-            homography_matrices.append(homography)
-
-            fig = plt.figure(figsize=(20, 10))
-            ax = fig.add_subplot(1, 1, 1)
-
-            plot_matches(ax, cv.cvtColor(image_a, cv.COLOR_BGR2RGB), cv.cvtColor(image_b, cv.COLOR_BGR2RGB),
-                         keypoints_a_loc, keypoints_b_loc, inliers)
-            plt.axis('off')
-            plt.title("Matched Keypoints after RANSAC")
-            plt.show()
-
-        self.homography_matrices = homography_matrices
-
     def alignment(self):
-        for pair_index in range(len(self.descriptors_array) - 1):
-            image_a = self.images[pair_index]
-            image_b = self.images[pair_index + 1]
+        image_old = None
+        for pair_index in range(len(self.images) - 1):
+            if pair_index == 0:
+                image_a = self.images[pair_index]
+                image_b = self.images[pair_index + 1]
 
-            result = stitch_two_images(image_a, image_b, self.homography_matrices[pair_index], self.alpha)
+                sift_descriptors_array, sift_keypoints_array = feature_extraction([image_a, image_b])
+                matches = feature_matching_brute([image_a, image_b], sift_descriptors_array, sift_keypoints_array)
+                homography_matrix = find_homography([image_a, image_b], sift_keypoints_array, matches, epsilon=self.epsilon)
 
-            plt.imshow(cv.cvtColor(result, cv.COLOR_BGR2RGB))
-            plt.axis('off')
-            plt.title("Stitched Image")
-            plt.show()
+                result = stitch_images(image_a, image_b, homography_matrix, self.alpha)
+                image_old = result
+
+                plt.imshow(cv.cvtColor(result, cv.COLOR_BGR2RGB))
+                plt.axis('off')
+                plt.title("Stitched Image")
+                plt.show()
+            else:
+                image_a = image_old
+                image_b = self.images[pair_index + 1]
+
+                sift_descriptors_array, sift_keypoints_array = feature_extraction([image_a, image_b])
+                matches = feature_matching_brute([image_a, image_b], sift_descriptors_array, sift_keypoints_array)
+                homography_matrix = find_homography([image_a, image_b], sift_keypoints_array, matches, epsilon=self.epsilon)
+
+                result = stitch_images(image_a, image_b, homography_matrix, self.alpha)
+                image_old = result
+
+                plt.imshow(cv.cvtColor(result, cv.COLOR_BGR2RGB))
+                plt.axis('off')
+                plt.title("Stitched Image")
+                plt.show()
