@@ -56,7 +56,7 @@ def fit_homography(points_a, points_b):
     return np.array(H)
 
 
-def ransac_fitting(matches, keypoint_a, keypoint_b, iter_count=500, epsilon=2):
+def ransac_fitting(matches, keypoint_a, keypoint_b, iter_count=200, epsilon=2):
     ransac_iteration = iter_count
     ransac_threshold = epsilon
     keypoints_a_loc = cv.KeyPoint_convert(keypoint_a)
@@ -75,14 +75,12 @@ def ransac_fitting(matches, keypoint_a, keypoint_b, iter_count=500, epsilon=2):
         homography = fit_homography(np.array(points_a), np.array(points_b))
         inlier_count, inlier_set = find_inliers(keypoints_a_loc, keypoints_b_loc, matches, homography, ransac_threshold)
 
-        print("Iteration: ", iter_index+1, "Inlier Count: ", inlier_count)
-
         if inlier_count > max_inlier_count:
             max_inlier_count = inlier_count
             max_inlier_set = inlier_set
 
-    print("Maximum inlier count: ", max_inlier_count)
     return np.array(max_inlier_set)
+
 
 def get_new_dimensions(image_a, image_b, homography):
     image_a_width = image_a.shape[1]
@@ -90,39 +88,78 @@ def get_new_dimensions(image_a, image_b, homography):
     image_b_width = image_b.shape[1]
     image_b_height = image_b.shape[0]
 
-    H_inv = np.linalg.inv(homography)
+    homography_inv = np.linalg.inv(homography)
 
-    new_top_corner = perspective_projection(image_b_width, image_b_height, H_inv)
-    new_bottom_corner = perspective_projection(image_b_width, 0, H_inv)
-    new_top_corner = get_cartesian_coordinates(new_top_corner)
-    new_bottom_corner = get_cartesian_coordinates(new_bottom_corner)
+    top_left_corner = get_cartesian_coordinates(perspective_projection(0, 0, homography_inv))
+    bottom_left_corner = get_cartesian_coordinates(perspective_projection(0, image_b_height-1, homography_inv))
+    top_right_corner = get_cartesian_coordinates(perspective_projection(image_b_width-1, 0, homography_inv))
+    bottom_right_corner = get_cartesian_coordinates(perspective_projection(image_b_width-1, image_b_height-1, homography_inv))
 
-    new_width = max([image_a_width, image_b_width, new_top_corner[0], new_bottom_corner[0]])
-    new_width = int(new_width) + 1
+    minimum_width = int(min([0, top_left_corner[0], bottom_left_corner[0], top_right_corner[0], bottom_right_corner[0]]))
+    minimum_height = int(min([0, top_left_corner[1], bottom_left_corner[1], top_right_corner[1], bottom_right_corner[1]]))
+    max_width = int(max([0, top_left_corner[0], bottom_left_corner[0], top_right_corner[0], bottom_right_corner[0]]))
+    max_height = int(max([0, top_left_corner[1], bottom_left_corner[1], top_right_corner[1], bottom_right_corner[1]]))
 
-    new_height = 0
-    if new_bottom_corner[1] < 0:
-        new_height = max([new_top_corner[1], image_a_height, image_b_height]) - new_bottom_corner[1]
-    else:
-        new_height = max([new_top_corner[1], image_a_height, image_b_height])
+    offset_width = np.abs(minimum_width)
+    offset_height = np.abs(minimum_height)
 
-    new_height = int(new_height) + 1
+    new_width = offset_width + image_a_width + np.abs(image_a_width - max_width)
+    new_height = offset_height + image_a_height + np.abs(image_a_height - max_height)
 
-    return new_width, new_height
+    return new_width, new_height, offset_width, offset_height, minimum_width, minimum_height
 
 
-def stitch_two_images(image_a, image_b, homography):
-    img_a = image_a.copy()
-    img_b = image_b.copy()
-    h_inv = np.linalg.inv(homography)
-    new_width, new_height = get_new_dimensions(img_a, img_b, homography)
-    new_img = np.zeros((new_height, new_width, 3))
+def alpha_blending(image_anc, image_new, alpha):
+    blended_img = image_new.copy()
+    alpha = alpha
+    for row in range(image_anc.shape[0]):
+        for col in range(image_anc.shape[1]):
+            if np.sum(image_new[row, col, :]) == 0:
+                blended_img[row, col, :] = image_anc[row, col, :]
+            elif np.sum(image_anc[row, col, :]) == 0:
+                blended_img[row, col, :] = image_new[row, col, :]
+            else:
+                blended_img[row, col, :] = alpha * image_anc[row, col, :] + (1-alpha) * image_new[row, col, :]
+    return blended_img
+
+
+def average_conv(image):
+    kernel_avg = np.ones((3, 3), np.float32) / 9
+    average_bluring = cv.filter2D(src=image, ddepth=-1, kernel=kernel_avg)
+    return average_bluring
+
+
+def stitch_two_images(image_a, image_b, homography, alpha):
+    new_width, new_height, offset_width, offset_height, min_width, min_height = get_new_dimensions(image_a, image_b, homography)
+    new_image_a = np.zeros((new_height, new_width, 3), dtype=np.uint8)
+    new_image_b = np.zeros((new_height, new_width, 3), dtype=np.uint8)
+
+    for x in range(image_a.shape[1]):
+        for y in range(image_a.shape[0]):
+            new_image_a[y+offset_height, x+offset_width, :] = image_a[y, x, :]
+
+    for x in range(min_width, new_width):
+        for y in range(min_height, new_height):
+            x_start = x + offset_width
+            y_start = y + offset_height
+            if x_start < new_width and y_start < new_height:
+                x_new, y_new = get_cartesian_coordinates(perspective_projection(x, y, homography))
+                if 0 < x_new < image_b.shape[1] and 0 < y_new < image_b.shape[0]:
+                    x_new = int(x_new)
+                    y_new = int(y_new)
+                    new_image_b[y_start, x_start, :] = image_b[y_new, x_new, :]
+
+    new_image = alpha_blending(new_image_a, new_image_b, 0.4)
+
+    return new_image
 
 
 class ImageStitcher:
 
-    def __init__(self, image_array):
+    def __init__(self, image_array, epsilon, alpha):
         self.images = image_array
+        self.epsilon = epsilon
+        self.alpha = alpha
         self.keypoints_array = []
         self.descriptors_array = []
         self.matches = []
@@ -199,7 +236,7 @@ class ImageStitcher:
             keypoints_b = self.keypoints_array[pair_index + 1]
             matches = self.matches[pair_index]
 
-            inliers = ransac_fitting(matches, keypoints_a, keypoints_b)
+            inliers = ransac_fitting(matches, keypoints_a, keypoints_b, epsilon=self.epsilon)
 
             keypoints_a_loc = np.flip(cv.KeyPoint_convert(keypoints_a), 1)
             keypoints_b_loc = np.flip(cv.KeyPoint_convert(keypoints_b), 1)
@@ -229,11 +266,7 @@ class ImageStitcher:
             image_a = self.images[pair_index]
             image_b = self.images[pair_index + 1]
 
-            new_width, new_height = get_new_dimensions(image_a, image_b, self.homography_matrices[0])
-
-            result = cv.warpPerspective(image_b, np.linalg.inv(self.homography_matrices[0]), (new_width, new_height))
-
-            result[0:image_a.shape[0], 0:image_a.shape[1]] = image_a
+            result = stitch_two_images(image_a, image_b, self.homography_matrices[pair_index], self.alpha)
 
             plt.imshow(cv.cvtColor(result, cv.COLOR_BGR2RGB))
             plt.axis('off')
