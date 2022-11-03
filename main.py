@@ -18,17 +18,15 @@ if __name__ == '__main__':
             images.append(sub_images)
             sub_images = []
             prev_image_index = image_name[2]
-            print("Moving to image no: ", prev_image_index)
 
         img = cv.imread(img_path + image_name)
         sub_images.append(img)
 
     images.append(sub_images)
 
-    #stitcher1 = ImageStitcher(images[0], epsilon=15, alpha=0.6)
-    #stitcher1.alignment()
-    #stitcher2 = ImageStitcher(images[1], epsilon=2.5, alpha=0.5)
-    #stitcher2.alignment()
-    stitcher3 = ImageStitcher(images[2], epsilon=2, alpha=0.4)
+    stitcher1 = ImageStitcher(images[0], epsilon=5)
+    stitcher1.alignment()
+    stitcher2 = ImageStitcher(images[1], epsilon=2.5)
+    stitcher2.alignment()
+    stitcher3 = ImageStitcher(images[2], epsilon=2)
     stitcher3.alignment()
-
