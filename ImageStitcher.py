@@ -124,7 +124,13 @@ def alpha_blending(image_anc, image_new, start, count):
                 blended_img[row, col, :] = image_new[row, col, :]
 
     for col in range(alpha.shape[0]):
-        blended_img[:, start + col, :] = (1 - alpha[col]) * image_anc[:, start + col, :] + alpha[col] * image_new[:, start + col, :]
+        for row in range(image_anc.shape[0]):
+            if np.sum(image_new[row, start + col, :]) == 0:
+                blended_img[row, start + col, :] = image_anc[row, start + col, :]
+            elif np.sum(image_anc[row, start + col, :]) == 0:
+                blended_img[row, start + col, :] = image_new[row, start + col, :]
+            else:
+                blended_img[row, start + col, :] = (1 - alpha[col]) * image_anc[row, start + col, :] + alpha[col] * image_new[row, start + col, :]
 
     return blended_img
 
