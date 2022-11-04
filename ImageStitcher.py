@@ -190,7 +190,6 @@ def feature_extraction(images):
     return sift_descriptors_array, sift_keypoints_array
 
 
-# Cross-check logic is inspired from https://github.com/AhmedHisham1/ORB-feature-matching/blob/master/utils.py
 def feature_matching_brute(images, descriptors_array, keypoints_array):
     matches = []
     for pair_index in range(len(descriptors_array) - 1):
